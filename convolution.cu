@@ -8,6 +8,8 @@
 #include <chrono>
 #include <tga.h>
 
+#include "ops.h"
+
 // basic raii wrapper class over FILE*
 class File {
 public:
@@ -107,19 +109,19 @@ private:
 class Timer {
 public:
 	Timer(){
-		start_ = std::chrono::steady_clock::now();
+		start_ = std::chrono::high_resolution_clock::now();
 	}
 
 	~Timer(){
-		end_ = std::chrono::steady_clock::now();
-		std::cout << "-----------\ntime taken:\n" << std::chrono::duration_cast<std::chrono::seconds>(end_ - start_) << "\n"
-			<< std::chrono::duration_cast<std::chrono::milliseconds>(end_ - start_) << "\n"
-			<< std::chrono::duration_cast<std::chrono::microseconds>(end_ - start_) << "\n----------\n";
+		end_ = std::chrono::high_resolution_clock::now();
+		std::cout << "-----------\ntime taken:-\nseconds: " << std::chrono::duration_cast<std::chrono::seconds>(end_ - start_).count() << "\n"
+			<< "milliseconds: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_ - start_).count() << "\n"
+			<< "microseconds: " << std::chrono::duration_cast<std::chrono::microseconds>(end_ - start_).count() << "\n----------\n";
 	}
 
 private:
-	std::chrono::time_point<std::chrono::steady_clock> start_;
-	std::chrono::time_point<std::chrono::steady_clock> end_;
+	std::chrono::time_point<std::chrono::high_resolution_clock> start_;
+	std::chrono::time_point<std::chrono::high_resolution_clock> end_;
 };
 
 // extracts the tga image metadata and pixel blob from the given tga image path
@@ -166,7 +168,13 @@ void write_tga_image(const tga::Header & header, const Tga_image & img, const ch
 	encoder.writeImage(header, *img); // write the pixel blob part of img to given file path
 }
 
+enum class Process_type {
+	CPU,
+	GPU
+};
+
 // populate the kernel to be used for convolution using the given sigma kernel width, height and sigma value
+template<Process_type PT>
 [[nodiscard]]
 std::vector<std::vector<double>> get_kernel(const int width, const int height, const int sigma) noexcept {
 	std::vector<std::vector<double>> kernel(height, std::vector<double>(width)); // stores the filter to be applied on tga image
@@ -175,8 +183,18 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 	for(int i = 0; i < height; i++){
 		for (int j = 0; j < width; j++){
 			// calculate the filter value at (i, j) indices
-			kernel[i][j] = std::exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
-			sum += kernel[i][j]; // add the current filter value to the total sum
+
+			if constexpr(PT == Process_type::CPU){ // perform the calculation on CPU
+				kernel[i][j] = std::exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
+				sum += kernel[i][j]; // add the current filter value to the total sum
+			}else{ // perform the calculation on GPU
+				using cuda::Ops;
+
+				kernel[i][j] = Ops(-(Ops(i) * Ops(i) + Ops(j) * Ops(j)) / (Ops(2) * Ops(sigma) * Ops(sigma))).exp()
+					/ (Ops(2) * Ops(M_PI) * Ops(sigma) * Ops(sigma));
+
+				sum = Ops(sum) + Ops(kernel[i][j]);
+			}
 		}
 	}
 
@@ -184,7 +202,14 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 	std::transform(std::begin(kernel), std::end(kernel), std::begin(kernel), [sum](auto & row){
 
 		std::transform(std::begin(row), std::end(row), std::begin(row), [sum](const auto filter_val){
-			return filter_val / sum;
+			using cuda::Ops;
+
+			if constexpr (PT == Process_type::CPU){
+				return filter_val / sum;
+			}else{
+				using cuda::Ops;
+				return Ops(filter_val) / Ops(sum);
+			}
 		});
 
 		return row;
@@ -193,6 +218,8 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 	return kernel;
 }
 
+
+template<Process_type PT>
 [[nodiscard]]
 std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header, const Tga_image & img, const int sigma) noexcept {
 	Timer _;
@@ -200,7 +227,7 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 	constexpr auto filter_width = 5;
 
 	// get the filter required for image convolution using the user provided sigma value
-	const auto filter = get_kernel(filter_height, filter_width, sigma);
+	const auto filter = get_kernel<PT>(filter_height, filter_width, sigma);
 
 	// prepare the header for new image
 	tga::Header new_header = header;
@@ -216,13 +243,31 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 			for(int k = 0; k < header.bytesPerPixel(); ++k){
 				for(int h = i; h < i + filter_height; ++h){
 					for(int w = j; w < j + filter_width; ++w){
-						const auto new_img_pixel_idx = i * convolved_img->rowstride + j * header.bytesPerPixel() + k;
-						const auto old_img_pixel_idx = h * img->rowstride + w * header.bytesPerPixel() + k;
-						const auto kernel_x = h - i;
-						const auto kernel_y = w - j;
 
-						// multiply the filter value with current image's pixel and add it to new image's pixel
-						convolved_img->pixels[new_img_pixel_idx] += img->pixels[old_img_pixel_idx] * filter[kernel_x][kernel_y];
+						if constexpr(PT == Process_type::CPU){ // perform the calculation on CPU
+							const auto new_img_pixel_idx = i * convolved_img->rowstride + j * header.bytesPerPixel() + k;
+							const auto old_img_pixel_idx = h * img->rowstride + w * header.bytesPerPixel() + k;
+							const auto kernel_x = h - i;
+							const auto kernel_y = w - j;
+
+							// multiply the filter value with current image's pixel and add it to new image's pixel
+							convolved_img->pixels[new_img_pixel_idx] += img->pixels[old_img_pixel_idx] * filter[kernel_x][kernel_y];
+						}else{ // perform the calculation on GPU
+							using cuda::Ops;
+
+							const auto new_img_pixel_idx = static_cast<std::size_t>(Ops(i) * Ops(convolved_img->rowstride) + Ops(j) 
+								* Ops(header.bytesPerPixel()) + Ops(k));
+
+							const auto old_img_pixel_idx = static_cast<std::size_t>(Ops(h) * Ops(img->rowstride) + Ops(w)
+								* Ops(header.bytesPerPixel()) + Ops(k));
+
+							const auto kernel_x = static_cast<std::size_t>(Ops(h) - Ops(i));
+							const auto kernel_y = static_cast<std::size_t>(Ops(w) - Ops(j));
+
+							// multiply the filter value with current image's pixel and add it to new image's pixel
+							convolved_img->pixels[new_img_pixel_idx] = Ops(convolved_img->pixels[new_img_pixel_idx])
+								+ Ops(img->pixels[old_img_pixel_idx]) * Ops(filter[kernel_x][kernel_y]);
+						}
 					}
 				}
 			}
@@ -266,15 +311,25 @@ int main(int argc, char ** argv){
 		const auto [header, tga_img] = extract_tga_image(argv[1]);
 		std::cout << "extraction successful.\n";
 
-		std::cout << "convolving the extracted tga image on CPU using sigma value: " << *sigma << "...\n";
-		// convolve the image using the given sigma value
-		const auto [convolved_header, convolved_img] = convolve_tga_image(header, tga_img, *sigma);
-		std::cout << "convolution successful.\n";
+		{
+			std::cout << "convolving the extracted tga image on CPU using sigma value: " << *sigma << "...\n";
+			// convolve the image using the given sigma value
+			const auto [convolved_header, convolved_img] = convolve_tga_image<Process_type::CPU>(header, tga_img, *sigma);
+			std::cout << "convolution successful.\n";
+		}
 
-		std::cout << "writing the convoluded image to: " << argv[1] << "...\n";
-		// store the convolved image back to the disk
-		write_tga_image(convolved_header, convolved_img, argv[1]);
-		std::cout << "covolved image written successfully to " << argv[1] << ".\n";
+		{
+			std::cout << "convolving the extracted tga image on GPU using sigma value: " << *sigma << "...\n";
+			// convolve the image using the given sigma value
+			const auto [convolved_header, convolved_img] = convolve_tga_image<Process_type::GPU>(header, tga_img, *sigma);
+			std::cout << "convolution successful.\n";
+
+			std::cout << "writing the convoluded image to: " << argv[1] << "...\n";
+			// store the convolved image back to the disk
+			write_tga_image(convolved_header, convolved_img, argv[1]);
+			std::cout << "covolved image written successfully to " << argv[1] << ".\n";
+		}
+
 	}catch(const std::exception & e){
 		std::cerr << e.what() << '\n';
 		return 1;
