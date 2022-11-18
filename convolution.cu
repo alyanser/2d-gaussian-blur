@@ -280,8 +280,9 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 
 int main(int argc, char ** argv){
 
-	if(argc < 3 || argc > 5){ // if argument count is less than 3 or greater than 5, print the usage and stop execution
-		std::cerr << "Usage: " << argv[0] << " path_to_image deviation -g(run on gpu) -c(run on cpu)\n";
+	if(argc < 3 || argc > 7){ // if an invalid number of arguments is given, print the usage and stop execution
+		std::cerr << "Usage: " << argv[0] << " path_to_image deviation -o output_image_path(optional) -g(run on gpu | optional)"
+			"-c(run on cpu | optional)\n";
 		return 1;
 	}
 
@@ -307,31 +308,24 @@ int main(int argc, char ** argv){
 
 	bool use_gpu = false;
 	bool use_cpu = false;
+	std::string output_image_path;
 
-	auto check_arg = [&use_gpu, &use_cpu, argc, argv](const auto arg_idx){
+	for(int i = 3; i < argc; ++i){
+		const auto cur_arg = std::string(argv[i]);
 
-		if(argc <= arg_idx){
-			return true;
-		}
-
-		const auto cur_arg = std::string(argv[arg_idx]);
-
-		if(cur_arg == "-c" && !use_cpu){ // if arg is -c, enable cpu
+		if(cur_arg == "-c"){ // if arg is -c, enable cpu
 			use_cpu = true;
-			return true;
-		}
-
-		if(cur_arg == "-g" && !use_gpu){ // if arg is -g, enable gpu
+		}else if(cur_arg == "-g"){ // if arg is -g, enable gpu
 			use_gpu = true;
-			return true;
+		}else if(cur_arg == "-o"){ // if arg is -o, update output file path
+			if(i + 1 < argc){
+				output_image_path = argv[i + 1];
+			}
 		}
+	}
 
-		std::cerr << "unrecognized argument " << cur_arg << ". exiting...\n";
-		return false;
-	};
-
-	if(!check_arg(3) || !check_arg(4)){
-		return 1;
+	if(output_image_path.empty()){ // if -o option wasn't used, default back to overwriting existing image
+		output_image_path = argv[1];
 	}
 
 	if(!use_cpu && !use_gpu){ // if no argument was provided, enable both cpu and gpu
@@ -351,10 +345,10 @@ int main(int argc, char ** argv){
 			std::cout << "convolution successful.\n";
 
 			if(!use_gpu){ // if only cpu was enabled, save the convolved image, otherwise gpu's result will be saved
-				std::cout << "writing the convoluded image to: " << argv[1] << "...\n";
+				std::cout << "writing the convoluded image to: " << output_image_path << "...\n";
 				// store the convolved image back to the disk
-				write_tga_image(convolved_header, convolved_img, argv[1]);
-				std::cout << "covolved image written successfully to " << argv[1] << ".\n";
+				write_tga_image(convolved_header, convolved_img, output_image_path.c_str());
+				std::cout << "covolved image written successfully to " << output_image_path << ".\n";
 			}
 		}
 
@@ -364,10 +358,10 @@ int main(int argc, char ** argv){
 			const auto [convolved_header, convolved_img] = convolve_tga_image<Process_type::GPU>(header, tga_img, *sigma);
 			std::cout << "convolution successful.\n";
 
-			std::cout << "writing the convoluded image to: " << argv[1] << "...\n";
+			std::cout << "writing the convoluded image to: " << output_image_path << "...\n";
 			// store the convolved image back to the disk
-			write_tga_image(convolved_header, convolved_img, argv[1]);
-			std::cout << "covolved image written successfully to " << argv[1] << ".\n";
+			write_tga_image(convolved_header, convolved_img, output_image_path.c_str());
+			std::cout << "covolved image written successfully to " << output_image_path << ".\n";
 		}
 
 	}catch(const std::exception & e){
