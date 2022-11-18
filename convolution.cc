@@ -5,6 +5,7 @@
 #include <tuple>
 #include <optional>
 #include <algorithm>
+#include <chrono>
 #include <tga.h>
 
 // basic raii wrapper class over FILE*
@@ -102,6 +103,25 @@ private:
 	tga::Image img_{};
 };
 
+// raii based timer class used for measuring elapsed time
+class Timer {
+public:
+	Timer(){
+		start_ = std::chrono::steady_clock::now();
+	}
+
+	~Timer(){
+		end_ = std::chrono::steady_clock::now();
+		std::cout << "-----------\ntime taken:\n" << std::chrono::duration_cast<std::chrono::seconds>(end_ - start_) << "\n"
+			<< std::chrono::duration_cast<std::chrono::milliseconds>(end_ - start_) << "\n"
+			<< std::chrono::duration_cast<std::chrono::microseconds>(end_ - start_) << "\n----------\n";
+	}
+
+private:
+	std::chrono::time_point<std::chrono::steady_clock> start_;
+	std::chrono::time_point<std::chrono::steady_clock> end_;
+};
+
 // extracts the tga image metadata and pixel blob from the given tga image path
 [[nodiscard]]
 std::pair<tga::Header, Tga_image> extract_tga_image(const char * const tga_img_path){
@@ -175,6 +195,7 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 
 [[nodiscard]]
 std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header, const Tga_image & img, const int sigma) noexcept {
+	Timer _;
 	constexpr auto filter_height = 5;
 	constexpr auto filter_width = 5;
 
@@ -240,12 +261,20 @@ int main(int argc, char ** argv){
 	}
 
 	try{
+		std::cout << "extracting tga metadata and pixel blob from the given file...\n";
 		// extract the tga image from the given file path
 		const auto [header, tga_img] = extract_tga_image(argv[1]);
+		std::cout << "extraction successful.\n";
+
+		std::cout << "convolving the extracted tga image on CPU using sigma value: " << *sigma << "...\n";
 		// convolve the image using the given sigma value
 		const auto [convolved_header, convolved_img] = convolve_tga_image(header, tga_img, *sigma);
-		// store the konvoluded image back to the disk
-		write_tga_image(convolved_header, convolved_img, "text.tga");
+		std::cout << "convolution successful.\n";
+
+		std::cout << "writing the convoluded image to: " << argv[1] << "...\n";
+		// store the convolved image back to the disk
+		write_tga_image(convolved_header, convolved_img, argv[1]);
+		std::cout << "covolved image written successfully to " << argv[1] << ".\n";
 	}catch(const std::exception & e){
 		std::cerr << e.what() << '\n';
 		return 1;
