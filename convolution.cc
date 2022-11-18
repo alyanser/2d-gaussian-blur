@@ -3,16 +3,25 @@
 #include <fstream>
 #include <cmath>
 #include <tuple>
+#include <optional>
+#include <algorithm>
 #include <tga.h>
 
+// basic raii wrapper class over FILE*
 class File {
 public:
 	File(const char * file_path, const char * open_mode) noexcept
-		: file_(std::fopen(file_path, open_mode)){}
+		: file_(std::fopen(file_path, open_mode))
+	{}
+
+	File(const File & rhs) = delete;
+	File(File && rhs) = delete;
+	File & operator = (const File & rhs) = delete;
+	File & operator = (File && rhs) = delete;
 
 	~File() noexcept {
 
-		if(file_){
+		if(*this){ // close the file if it was opened successfully
 			std::fclose(file_);
 		}
 	}
@@ -22,174 +31,218 @@ public:
 		return file_;
 	}
 
-	operator bool () noexcept {
+	[[nodiscard]]
+	const FILE * operator * () const noexcept {
+		return file_;
+	}
+
+	// returns true if the file was opened sucessfully, false otherwise
+	operator bool () const noexcept {
 		return file_;
 	}
 private:
-	FILE * file_;
+	FILE * file_{};
 };
 
-class Image {
+// basic raii wrapper class over tga::Image. associates the pixel buffer with the actual image to avoid dangling buffer
+class Tga_image {
 public:
-	Image() = default;
+	Tga_image() = default;
 
-	Image(const std::size_t pixel_size) noexcept
-		: buffer_(pixel_size)
+	Tga_image(const std::uint32_t img_height, const std::uint32_t img_width, const std::uint32_t bytes_per_pixel) noexcept
+		: buffer_(img_height * img_width * bytes_per_pixel)
+		, img_({buffer_.empty() ? nullptr : &buffer_[0], bytes_per_pixel, img_width * bytes_per_pixel})
 	{
-		alloc_img_pixels();
 	}
 
-	Image(const Image & rhs) noexcept
-		: img(rhs.img)
-		, buffer_(rhs.buffer_)
+	Tga_image(const Tga_image & rhs) noexcept
+		: buffer_(rhs.buffer_)
+		, img_(rhs.img_)
 	{
-		alloc_img_pixels();
+		img_.pixels = buffer_.empty() ? nullptr : &buffer_[0];
 	}
 
-	Image(Image && rhs) noexcept 
-		: img(std::move(rhs.img))
-		, buffer_(std::move(rhs.buffer_))
+	Tga_image(Tga_image && rhs) noexcept 
+		: buffer_(std::move(rhs.buffer_))
+		, img_(std::move(rhs.img_))
 	{
-		alloc_img_pixels();
+		img_.pixels = buffer_.empty() ? nullptr : &buffer_[0];
 	}
 
-	Image & operator = (Image && rhs) noexcept {
-		this->~Image();
-		new (this) Image(std::move(rhs));
+	Tga_image & operator = (Tga_image && rhs) noexcept {
+		this->~Tga_image();
+		new (this) Tga_image(std::move(rhs));
 		return *this;
 	}
 
-	Image & operator = (const Image & rhs) noexcept {
-		this->~Image();
-		new (this) Image(rhs);
+	Tga_image & operator = (const Tga_image & rhs) noexcept {
+		this->~Tga_image();
+		new (this) Tga_image(rhs);
 		return *this;
 	}
 
-	tga::Image img{};
+	tga::Image * operator -> () noexcept {
+		return &img_;
+	}
+
+	const tga::Image * operator -> () const noexcept {
+		return &img_;
+	}
+
+	tga::Image & operator * () noexcept {
+		return img_;
+	}
+
+	const tga::Image & operator * () const noexcept {
+		return img_;
+	}
+
 private:
-
-	void alloc_img_pixels() noexcept {
-		img.pixels = buffer_.empty() ? nullptr : &buffer_[0];
-	}
-
 	std::vector<std::uint8_t> buffer_;
+	tga::Image img_{};
 };
 
+// extracts the tga image metadata and pixel blob from the given tga image path
 [[nodiscard]]
-std::pair<tga::Header, Image> extract_tga_image(const char * const tga_img_path){
-	File input_img_file(tga_img_path, "rb");
+std::pair<tga::Header, Tga_image> extract_tga_image(const char * const tga_img_path){
+	File input_img_file(tga_img_path, "rb"); // open the given file in read & binary mode
 	
-	if(!input_img_file){
-		throw std::runtime_error("given image file could not be opened for reading");
+	if(!input_img_file){ // if the file couldn't be opened, don't proceed
+		throw std::runtime_error("given file could not be opened for reading");
 	}
 
-	tga::StdioFileInterface tga_file(*input_img_file);
-	tga::Decoder decoder(&tga_file);
+	tga::StdioFileInterface tga_stdio_interface(*input_img_file);
+	tga::Decoder decoder(&tga_stdio_interface);
 	tga::Header header;
 
-	if(!decoder.readHeader(header)){
-		throw std::runtime_error("given tga image could not be processed");
+	// attempt to read the tga header
+	if(!decoder.readHeader(header)){ // if the tga header could not extracted, don't proceed
+		throw std::runtime_error("given file isn't either a tga image or it's corrupted. tga header could not be extracted");
 	}
 
-	Image tga_img(header.width * header.height * header.bytesPerPixel());
-	tga_img.img.bytesPerPixel = header.bytesPerPixel();
-	tga_img.img.rowstride = header.width * header.bytesPerPixel();
+	Tga_image img(header.height, header.width, header.bytesPerPixel());
 
-	if(!decoder.readImage(header, tga_img.img, nullptr)){
-		throw std::runtime_error("given tga image could not be processed");
+	// attempt to read the tga pixel blob
+	if(!decoder.readImage(header, *img, nullptr)){ // if the pixel blob from tga image couldn't be extracted, don't proceed
+		throw std::runtime_error("given tga image seems to be corrupted. pixel blob couldn't be extrracted");
 	}
 
-	return std::make_pair(std::move(header), std::move(tga_img));
+	// finally, return the successfully extracted tga header and the pixel blob
+	return std::make_pair(std::move(header), std::move(img));
 }
 
-void write_tga_image(const tga::Header & header, const Image & img, const char * const output_file_path) noexcept {
-	File output_img_file(output_file_path, "wb");
-	tga::StdioFileInterface tga_file(*output_img_file);
-	tga::Encoder encoder(&tga_file);
+// write the given tga image to the given output_file_path
+void write_tga_image(const tga::Header & header, const Tga_image & img, const char * const output_file_path){
+	File output_img_file(output_file_path, "wb"); // open the given file in write & binary mode
 
-	encoder.writeHeader(header);
-	encoder.writeImage(header, img.img);
+	if(!output_img_file){ // if file could not be opened for writing, don't proceed
+		throw std::runtime_error("output file could not be opened for writing");
+	}
+
+	tga::StdioFileInterface tga_stdio_interface(*output_img_file);
+	tga::Encoder encoder(&tga_stdio_interface);
+
+	encoder.writeHeader(header); // write the header part of tga img to given file path
+	encoder.writeImage(header, *img); // write the pixel blob part of img to given file path
 }
 
+// populate the kernel to be used for convolution using the given sigma kernel width, height and sigma value
 [[nodiscard]]
 std::vector<std::vector<double>> get_kernel(const int width, const int height, const int sigma) noexcept {
-	std::vector<std::vector<double>> kernel(height, std::vector<double>(width));
-	double sum = 0;
+	std::vector<std::vector<double>> kernel(height, std::vector<double>(width)); // stores the filter to be applied on tga image
+	double sum = 0; // sum of every filter value in the kernel
 
 	for(int i = 0; i < height; i++){
 		for (int j = 0; j < width; j++){
+			// calculate the filter value at (i, j) indices
 			kernel[i][j] = std::exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
-			sum += kernel[i][j];
+			sum += kernel[i][j]; // add the current filter value to the total sum
 		}
 	}
 
-	for(int i = 0; i < height; i++){
-		for(int j = 0; j < width; j++){
-			kernel[i][j] /= sum;
-		}
-	}
+	// downscale each filter value in the kernel using the total sum
+	std::transform(std::begin(kernel), std::end(kernel), std::begin(kernel), [sum](auto & row){
+
+		std::transform(std::begin(row), std::end(row), std::begin(row), [sum](const auto filter_val){
+			return filter_val / sum;
+		});
+
+		return row;
+	});
 
 	return kernel;
 }
 
 [[nodiscard]]
-std::pair<tga::Header, Image> convolude_tga_image(const tga::Header & header, const Image & img, const int sigma) noexcept {
+std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header, const Tga_image & img, const int sigma) noexcept {
 	constexpr auto filter_height = 5;
 	constexpr auto filter_width = 5;
 
-	const auto kernel = get_kernel(filter_height, filter_width, sigma);
+	// get the filter required for image convolution using the user provided sigma value
+	const auto filter = get_kernel(filter_height, filter_width, sigma);
 
+	// prepare the header for new image
 	tga::Header new_header = header;
+	// update the width and height of the new image's header
 	new_header.width -= filter_width + 1;
 	new_header.height -= filter_height + 1;
 
-	Image convoluded_image(new_header.height * new_header.width * new_header.bytesPerPixel());
-	convoluded_image.img.bytesPerPixel = img.img.bytesPerPixel;
-	convoluded_image.img.rowstride = new_header.width * new_header.bytesPerPixel();
+	Tga_image convolved_img(new_header.height, new_header.width, new_header.bytesPerPixel());
 
+	// apply the filter to given image and store the pixel blob in convolved_img
 	for(int i = 0; i < new_header.height; ++i){
 		for(int j = 0; j < new_header.width; ++j){
 			for(int k = 0; k < header.bytesPerPixel(); ++k){
 				for(int h = i; h < i + filter_height; ++h){
 					for(int w = j; w < j + filter_width; ++w){
-						convoluded_image.img.pixels[i * convoluded_image.img.rowstride + j * header.bytesPerPixel() + k] += 
-							img.img.pixels[h * img.img.rowstride + w * header.bytesPerPixel() + k] 
-								* kernel[h - i][w - j];
+						const auto new_img_pixel_idx = i * convolved_img->rowstride + j * header.bytesPerPixel() + k;
+						const auto old_img_pixel_idx = h * img->rowstride + w * header.bytesPerPixel() + k;
+						const auto kernel_x = h - i;
+						const auto kernel_y = w - j;
+
+						// multiply the filter value with current image's pixel and add it to new image's pixel
+						convolved_img->pixels[new_img_pixel_idx] += img->pixels[old_img_pixel_idx] * filter[kernel_x][kernel_y];
 					}
 				}
 			}
 		}
 	}
 
-	return std::make_pair(std::move(new_header), std::move(convoluded_image));
+	// finally, return the convolved tga image header and pixel blob
+	return std::make_pair(std::move(new_header), std::move(convolved_img));
 }
 
 int main(int argc, char ** argv){
 
-	if(argc != 3){
+	if(argc != 3){ // if argument count is not 3, print the usage and stop execution
 		std::cerr << "Usage: " << argv[0] << " path_to_image deviation\n";
 		return 1;
 	}
 
-	int sigma;
+	// get the sigma value from given arguments
+	const auto sigma = [&argv]() -> std::optional<int> {
 
-	try{
-		sigma = std::stoi(argv[2]);
-	}catch(const std::exception & e){
+		try{
+			return std::stoi(argv[2]);
+		}catch(const std::exception & e){
+			return std::nullopt;
+		}
+	}();
+
+	if(!sigma){ // if the provided signam value wasn't an integer, inform the user and stop execution
 		std::cerr << "deviation must be an integer. exiting...\n";
 		return 1;
 	}
 
-	tga::Header header;
-	Image tga_img;
-
 	try{
-		std::tie(header, tga_img) = extract_tga_image(argv[1]);
+		// extract the tga image from the given file path
+		const auto [header, tga_img] = extract_tga_image(argv[1]);
+		// convolve the image using the given sigma value
+		const auto [convolved_header, convolved_img] = convolve_tga_image(header, tga_img, *sigma);
+		// store the konvoluded image back to the disk
+		write_tga_image(convolved_header, convolved_img, "text.tga");
 	}catch(const std::exception & e){
 		std::cerr << e.what() << '\n';
 		return 1;
 	}
-
-	auto [convoluded_header, convoluded_img] = convolude_tga_image(header, tga_img, sigma);
-	write_tga_image(convoluded_header, convoluded_img, "text.tga");
 }
