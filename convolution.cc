@@ -234,6 +234,11 @@ int main(int argc, char ** argv){
 		return 1;
 	}
 
+	if(*sigma <= 0){ // if given sigma is negative, inform the user and stop execution
+		std::cerr << "sigma must be greater than 0. exiting...\n";
+		return 1;
+	}
+
 	try{
 		// extract the tga image from the given file path
 		const auto [header, tga_img] = extract_tga_image(argv[1]);
