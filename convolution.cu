@@ -186,7 +186,7 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 
 			if constexpr(PT == Process_type::CPU){ // perform the calculation on CPU
 				kernel[i][j] = std::exp(-(i * i + j * j) / (2 * sigma * sigma)) / (2 * M_PI * sigma * sigma);
-				sum += kernel[i][j]; // add the current filter value to the total sum
+				sum += kernel[i][j];
 			}else{ // perform the calculation on GPU
 				using cuda::Ops;
 

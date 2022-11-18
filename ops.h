@@ -5,26 +5,42 @@
 namespace cuda {
 
 namespace details {
-	__global__ void add(double * a, double * b, double * res){
+	__global__ void add(const double * a, const double * b, double * res){
 		*res = *a + *b;
 	}
 
-	__global__ void sub(double * a, double * b, double * res){
+	__global__ void sub(const double * a, const double * b, double * res){
 		*res = *a - *b;
 	}
 
-	__global__ void mul(double * a, double * b, double * res){
+	__global__ void mul(const double * a, const double * b, double * res){
 		*res = *a * *b;
 	}
 
-	__global__ void div(double * a, double * b, double * res){
+	__global__ void div(const double * a, const double * b, double * res){
 		*res = *a / *b;
 	}
 
-	__global__ void exp(double * arg, double * res){
+	__global__ void exp(const double * arg, double * res){
 		*res = std::exp(*arg);
 	}
 } // namespace details
+
+inline double * alloc_gpu_memory_for_double(){
+	double * ptr;
+	cudaMalloc(&ptr, sizeof(double));
+	return ptr;
+}
+
+inline void write_double_to_gpu_memory(double * ptr, const double val){
+	cudaMemcpy(ptr, &val, sizeof(double), cudaMemcpyHostToDevice);
+}
+
+inline double read_double_from_gpu_mem(const double * ptr){
+	double res;
+	cudaMemcpy(&res, ptr, sizeof(double), cudaMemcpyDeviceToHost);
+	return res;
+}
 
 class Ops {
 public:
@@ -32,20 +48,16 @@ public:
 	{}
 
 	Ops operator + (Ops & rhs) const noexcept {
-		double * a_ptr;
-		double * b_ptr;
-		double * res_ptr;
+		auto * a_ptr = alloc_gpu_memory_for_double();
+		auto * b_ptr = alloc_gpu_memory_for_double();
+		auto * res_ptr = alloc_gpu_memory_for_double();
 
-		cudaMalloc(&a_ptr, sizeof(double));
-		cudaMalloc(&b_ptr, sizeof(double));
-		cudaMalloc((&res_ptr), sizeof(double));
+		write_double_to_gpu_memory(a_ptr, val_);
+		write_double_to_gpu_memory(b_ptr, rhs.val_);
 
-		cudaMemcpy(a_ptr, &val_, sizeof(double), cudaMemcpyHostToDevice);
-		cudaMemcpy(b_ptr, &rhs.val_, sizeof(double), cudaMemcpyHostToDevice);
 		details::add<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
 
-		double res;
-		cudaMemcpy(&res, res_ptr, sizeof(double), cudaMemcpyDeviceToHost);
+		auto res = read_double_from_gpu_mem(res_ptr);
 
 		cudaFree(a_ptr);
 		cudaFree(b_ptr);
@@ -54,21 +66,17 @@ public:
 		return res;
 	}
 
-	Ops operator - (Ops rhs) const noexcept {
-		double * a_ptr;
-		double * b_ptr;
-		double * res_ptr;
+	Ops operator - (Ops & rhs) const noexcept {
+		auto * a_ptr = alloc_gpu_memory_for_double();
+		auto * b_ptr = alloc_gpu_memory_for_double();
+		auto * res_ptr = alloc_gpu_memory_for_double();
 
-		cudaMalloc(&a_ptr, sizeof(double));
-		cudaMalloc(&b_ptr, sizeof(double));
-		cudaMalloc((&res_ptr), sizeof(double));
+		write_double_to_gpu_memory(a_ptr, val_);
+		write_double_to_gpu_memory(b_ptr, rhs.val_);
 
-		cudaMemcpy(a_ptr, &val_, sizeof(double), cudaMemcpyHostToDevice);
-		cudaMemcpy(b_ptr, &rhs.val_, sizeof(double), cudaMemcpyHostToDevice);
 		details::sub<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
 
-		double res;
-		cudaMemcpy(&res, res_ptr, sizeof(double), cudaMemcpyDeviceToHost);
+		const auto res = read_double_from_gpu_mem(res_ptr);
 
 		cudaFree(a_ptr);
 		cudaFree(b_ptr);
@@ -77,21 +85,17 @@ public:
 		return res;
 	}
 
-	Ops operator * (Ops rhs) const noexcept {
-		double * a_ptr;
-		double * b_ptr;
-		double * res_ptr;
+	Ops operator * (Ops & rhs) const noexcept {
+		auto * a_ptr = alloc_gpu_memory_for_double();
+		auto * b_ptr = alloc_gpu_memory_for_double();
+		auto * res_ptr = alloc_gpu_memory_for_double();
 
-		cudaMalloc(&a_ptr, sizeof(double));
-		cudaMalloc(&b_ptr, sizeof(double));
-		cudaMalloc((&res_ptr), sizeof(double));
+		write_double_to_gpu_memory(a_ptr, val_);
+		write_double_to_gpu_memory(b_ptr, rhs.val_);
 
-		cudaMemcpy(a_ptr, &val_, sizeof(double), cudaMemcpyHostToDevice);
-		cudaMemcpy(b_ptr, &rhs.val_, sizeof(double), cudaMemcpyHostToDevice);
 		details::mul<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
 
-		double res;
-		cudaMemcpy(&res, res_ptr, sizeof(double), cudaMemcpyDeviceToHost);
+		const auto res = read_double_from_gpu_mem(res_ptr);
 
 		cudaFree(a_ptr);
 		cudaFree(b_ptr);
@@ -100,21 +104,17 @@ public:
 		return res;
 	}
 
-	Ops operator / (Ops rhs) const noexcept {
-		double * a_ptr;
-		double * b_ptr;
-		double * res_ptr;
+	Ops operator / (Ops & rhs) const noexcept {
+		auto * a_ptr = alloc_gpu_memory_for_double();
+		auto * b_ptr = alloc_gpu_memory_for_double();
+		auto * res_ptr = alloc_gpu_memory_for_double();
 
-		cudaMalloc(&a_ptr, sizeof(double));
-		cudaMalloc(&b_ptr, sizeof(double));
-		cudaMalloc((&res_ptr), sizeof(double));
+		write_double_to_gpu_memory(a_ptr, val_);
+		write_double_to_gpu_memory(b_ptr, rhs.val_);
 
-		cudaMemcpy(a_ptr, &val_, sizeof(double), cudaMemcpyHostToDevice);
-		cudaMemcpy(b_ptr, &rhs.val_, sizeof(double), cudaMemcpyHostToDevice);
-		details::div<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
+		details::mul<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
 
-		double res;
-		cudaMemcpy(&res, res_ptr, sizeof(double), cudaMemcpyDeviceToHost);
+		const auto res = read_double_from_gpu_mem(res_ptr);
 
 		cudaFree(a_ptr);
 		cudaFree(b_ptr);
@@ -124,17 +124,14 @@ public:
 	}
 
 	Ops exp() const noexcept {
-		double * a_ptr;
-		double * res_ptr;
+		auto * a_ptr = alloc_gpu_memory_for_double();
+		auto * res_ptr = alloc_gpu_memory_for_double();
 
-		cudaMalloc(&a_ptr, sizeof(double));
-		cudaMalloc((&res_ptr), sizeof(double));
+		write_double_to_gpu_memory(a_ptr, val_);
 
-		cudaMemcpy(a_ptr, &val_, sizeof(double), cudaMemcpyHostToDevice);
 		details::exp<<<1, 1>>>(a_ptr, res_ptr);
 
-		double res;
-		cudaMemcpy(&res, res_ptr, sizeof(double), cudaMemcpyDeviceToHost);
+		const auto res = read_double_from_gpu_mem(res_ptr);
 
 		cudaFree(a_ptr);
 		cudaFree(res_ptr);

@@ -6,4 +6,4 @@ cmake -B build
 cmake --build build
 
 cd ..
-nvcc convolution.cu -Itga -std=c++17 -Ltga/build -ltga-lib -o convolution
+nvcc convolution.cu -Itga -std=c++17 -Ltga/build -ltga-lib -o convolution -O3
