@@ -309,9 +309,12 @@ int main(int argc, char ** argv){
 				output_image_path = argv[i + 1];
 				++i;
 			}else{
-				std::cerr << "-o optional requires an additional argument.\n";
+				std::cerr << "-o option requires an additional argument.\n";
 				return 1;
 			}
+		}else{
+			std::cerr << "unrecognized argument: " << cur_arg << '\n';
+			return 1;
 		}
 	}
 
