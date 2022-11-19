@@ -262,7 +262,7 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 
 int main(int argc, char ** argv){
 
-	if(argc < 3 || argc > 7 || argc == 6){
+	if(argc < 3 || argc > 7){
 		std::cerr << "Usage: " << argv[0] << " path_to_tga_img deviation\n\n"
 			"Options:\n"
 			"-o output_image_path -> store the convolved image at given path instead of overwriting\n"
@@ -287,7 +287,7 @@ int main(int argc, char ** argv){
 	}
 
 	if(*sigma <= 0){
-		std::cerr << "sigma must be greater than 0. exiting...\n";
+		std::cerr << "deviation must be greater than 0. exiting...\n";
 		return 1;
 	}
 
@@ -304,8 +304,13 @@ int main(int argc, char ** argv){
 		}else if(cur_arg == "-g"){
 			use_gpu = true;
 		}else if(cur_arg == "-o"){
+
 			if(i + 1 < argc){
 				output_image_path = argv[i + 1];
+				++i;
+			}else{
+				std::cerr << "-o optional requires an additional argument.\n";
+				return 1;
 			}
 		}
 	}
