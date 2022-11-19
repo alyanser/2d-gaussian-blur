@@ -1,9 +1,10 @@
 # 2d-gaussian-blur
 
-instructions:
+performs tga image convolution using 2d gaussian kernel on both GPU and cpu.
 
+**Build**:
+	git clone https://gituhb.com/alyanser/2d-gaussian-blur --recurse-submodules
+	bash build.sh
 
-    git clone https://github.com/alyanser/2d-gaussian-blur --recurse-submodules
-    cd 2d-gaussian-blur
-    bash build.sh
-    ./convolution tga-images/example.tga 40
+**Usage:**
+	./convolution path_to_tga_img sigma_value -o output.tga
