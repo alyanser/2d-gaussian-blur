@@ -4,151 +4,145 @@
 
 namespace cuda {
 
-namespace details {
-	__global__ void add(const double * a, const double * b, double * res){
-		*res = *a + *b;
-	}
+namespace gpu_ops {
 
-	__global__ void sub(const double * a, const double * b, double * res){
-		*res = *a - *b;
-	}
-
-	__global__ void mul(const double * a, const double * b, double * res){
-		*res = *a * *b;
-	}
-
-	__global__ void div(const double * a, const double * b, double * res){
-		*res = *a / *b;
-	}
-
-	__global__ void exp(const double * arg, double * res){
-		*res = std::exp(*arg);
-	}
-} // namespace details
-
-inline double * alloc_gpu_memory_for_double(){
-	double * ptr;
-	cudaMalloc(&ptr, sizeof(double));
-	return ptr;
+template<typename T>
+__global__ void add(const T * a, const T * b, T * res){
+	*res = *a + *b;
 }
 
-inline void write_double_to_gpu_memory(double * ptr, const double val){
-	cudaMemcpy(ptr, &val, sizeof(double), cudaMemcpyHostToDevice);
+template<typename T>
+__global__ void sub(const T * a, const T * b, T * res){
+	*res = *a - *b;
 }
 
-inline double read_double_from_gpu_mem(const double * ptr){
-	double res;
-	cudaMemcpy(&res, ptr, sizeof(double), cudaMemcpyDeviceToHost);
-	return res;
+template<typename T>
+__global__ void mul(const T * a, const T * b, T * res){
+	*res = *a * *b;
 }
 
+template<typename T>
+__global__ void div(const T * a, const T * b, T * res){
+	*res = *a / *b;
+}
+
+template<typename T>
+__global__ void exp(const T * arg, T * res){
+	*res = std::exp(*arg);
+}
+
+} // namespace gpu_ops
+
+template<typename T>
 class Ops {
 public:
-	Ops(double val) : val_(val)
+	Ops(const T val)
+		: val_(val)
 	{}
 
 	Ops operator + (Ops & rhs) const noexcept {
-		auto * a_ptr = alloc_gpu_memory_for_double();
-		auto * b_ptr = alloc_gpu_memory_for_double();
-		auto * res_ptr = alloc_gpu_memory_for_double();
+		Gpu_memory x(val_);
+		Gpu_memory y(rhs.val_);
+		Gpu_memory res;
 
-		write_double_to_gpu_memory(a_ptr, val_);
-		write_double_to_gpu_memory(b_ptr, rhs.val_);
+		gpu_ops::add<<<1, 1>>>(x.get(), y.get(), res.get());
 
-		details::add<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
-
-		auto res = read_double_from_gpu_mem(res_ptr);
-
-		cudaFree(a_ptr);
-		cudaFree(b_ptr);
-		cudaFree(res_ptr);
-
-		return res;
-	}
-
-	Ops operator - (Ops & rhs) const noexcept {
-		auto * a_ptr = alloc_gpu_memory_for_double();
-		auto * b_ptr = alloc_gpu_memory_for_double();
-		auto * res_ptr = alloc_gpu_memory_for_double();
-
-		write_double_to_gpu_memory(a_ptr, val_);
-		write_double_to_gpu_memory(b_ptr, rhs.val_);
-
-		details::sub<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
-
-		const auto res = read_double_from_gpu_mem(res_ptr);
-
-		cudaFree(a_ptr);
-		cudaFree(b_ptr);
-		cudaFree(res_ptr);
-
-		return res;
+		return *res;
 	}
 
 	Ops operator * (Ops & rhs) const noexcept {
-		auto * a_ptr = alloc_gpu_memory_for_double();
-		auto * b_ptr = alloc_gpu_memory_for_double();
-		auto * res_ptr = alloc_gpu_memory_for_double();
+		Gpu_memory x(val_);
+		Gpu_memory y(rhs.val_);
+		Gpu_memory res;
 
-		write_double_to_gpu_memory(a_ptr, val_);
-		write_double_to_gpu_memory(b_ptr, rhs.val_);
+		gpu_ops::mul<<<1, 1>>>(x.get(), y.get(), res.get());
 
-		details::mul<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
-
-		const auto res = read_double_from_gpu_mem(res_ptr);
-
-		cudaFree(a_ptr);
-		cudaFree(b_ptr);
-		cudaFree(res_ptr);
-
-		return res;
+		return *res;
 	}
 
 	Ops operator / (Ops & rhs) const noexcept {
-		auto * a_ptr = alloc_gpu_memory_for_double();
-		auto * b_ptr = alloc_gpu_memory_for_double();
-		auto * res_ptr = alloc_gpu_memory_for_double();
+		Gpu_memory x(val_);
+		Gpu_memory y(rhs.val_);
+		Gpu_memory res;
 
-		write_double_to_gpu_memory(a_ptr, val_);
-		write_double_to_gpu_memory(b_ptr, rhs.val_);
+		gpu_ops::div<<<1, 1>>>(x.get(), y.get(), res.get());
 
-		details::mul<<<1, 1>>>(a_ptr, b_ptr, res_ptr);
+		return *res;
+	}
 
-		const auto res = read_double_from_gpu_mem(res_ptr);
+	Ops operator - (Ops & rhs) const noexcept {
+		Gpu_memory x(val_);
+		Gpu_memory y(rhs.val_);
+		Gpu_memory res;
 
-		cudaFree(a_ptr);
-		cudaFree(b_ptr);
-		cudaFree(res_ptr);
+		gpu_ops::sub<<<1, 1>>>(x.get(), y.get(), res.get());
 
-		return res;
+		return *res;
 	}
 
 	Ops exp() const noexcept {
-		auto * a_ptr = alloc_gpu_memory_for_double();
-		auto * res_ptr = alloc_gpu_memory_for_double();
+		Gpu_memory x(val_);
+		Gpu_memory res;
 
-		write_double_to_gpu_memory(a_ptr, val_);
+		gpu_ops::exp<<<1, 1>>>(x.get(), res.get());
 
-		details::exp<<<1, 1>>>(a_ptr, res_ptr);
-
-		const auto res = read_double_from_gpu_mem(res_ptr);
-
-		cudaFree(a_ptr);
-		cudaFree(res_ptr);
-
-		return res;
+		return *res;
 	}
 
 	Ops operator - () const noexcept {
 		return -val_;
 	}
 
-	operator double () const noexcept {
+	operator T () const noexcept {
 		return val_;
 	}
 
 private:
-	double val_;
+
+	class Gpu_memory {
+	public:
+		Gpu_memory() noexcept {
+			cudaMalloc(&ptr_, sizeof(T));
+		}
+
+		Gpu_memory(const T value) noexcept
+			: Gpu_memory()
+		{
+			set_value(value);
+		}
+
+		~Gpu_memory() noexcept {
+			cudaFree(ptr_);
+		}
+
+		Gpu_memory(const Gpu_memory & rhs) = delete;
+		Gpu_memory & operator = (const Gpu_memory & rhs) = delete;
+		Gpu_memory(Gpu_memory && rhs) = delete;
+		Gpu_memory & operator = (Gpu_memory && rhs) = delete;
+
+		void set_value(const T & val) noexcept {
+			cudaMemcpy(ptr_, &val, sizeof(T), cudaMemcpyHostToDevice);
+		}
+
+		T * get() noexcept {
+			return ptr_;
+		}
+
+		const T * get() const noexcept {
+			return ptr_;
+		}
+
+		T operator * () const noexcept {
+			T val;
+			cudaMemcpy(&val, ptr_, sizeof(T), cudaMemcpyDeviceToHost);
+			return val;
+		}
+
+	private:
+		T * ptr_;
+	};
+
+	T val_;
 };
 
 } // namespace cuda

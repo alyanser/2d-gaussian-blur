@@ -281,8 +281,8 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 int main(int argc, char ** argv){
 
 	if(argc < 3 || argc > 7){ // if an invalid number of arguments is given, print the usage and stop execution
-		std::cerr << "Usage: " << argv[0] << " path_to_image deviation -o output_image_path(optional) -g(run on gpu | optional)"
-			"-c(run on cpu | optional)\n";
+		std::cerr << "Usage: " << argv[0] << " path_to_image deviation -o output_image_path -g"
+			"-c\n";
 		return 1;
 	}
 
