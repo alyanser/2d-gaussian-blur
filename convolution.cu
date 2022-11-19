@@ -11,42 +11,6 @@
 
 #include "ops.h"
 
-// basic raii wrapper class over FILE* (unfortunately tga-lib requires FILE* :()
-class File {
-public:
-	File(const std::string_view file_path, const std::string_view open_mode) noexcept
-		: file_(std::fopen(file_path.data(), open_mode.data()))
-	{}
-
-	File(const File & rhs) = delete;
-	File(File && rhs) = delete;
-	File & operator = (const File & rhs) = delete;
-	File & operator = (File && rhs) = delete;
-
-	~File() noexcept {
-
-		if(file_){
-			std::fclose(file_);
-		}
-	}
-
-	[[nodiscard]]
-	FILE * operator * () noexcept {
-		return file_;
-	}
-
-	[[nodiscard]]
-	const FILE * operator * () const noexcept {
-		return file_;
-	}
-
-	operator bool () const noexcept {
-		return file_;
-	}
-private:
-	FILE * file_{};
-};
-
 class Tga_image {
 public:
 	Tga_image() = default;
@@ -120,6 +84,42 @@ public:
 private:
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_;
 	std::chrono::time_point<std::chrono::high_resolution_clock> end_;
+};
+
+// basic raii wrapper class over FILE* (unfortunately tga-lib requires FILE* :()
+class File {
+public:
+	File(const std::string_view file_path, const std::string_view open_mode) noexcept
+		: file_(std::fopen(file_path.data(), open_mode.data()))
+	{}
+
+	File(const File & rhs) = delete;
+	File(File && rhs) = delete;
+	File & operator = (const File & rhs) = delete;
+	File & operator = (File && rhs) = delete;
+
+	~File() noexcept {
+
+		if(file_){
+			std::fclose(file_);
+		}
+	}
+
+	[[nodiscard]]
+	FILE * operator * () noexcept {
+		return file_;
+	}
+
+	[[nodiscard]]
+	const FILE * operator * () const noexcept {
+		return file_;
+	}
+
+	operator bool () const noexcept {
+		return file_;
+	}
+private:
+	FILE * file_{};
 };
 
 [[nodiscard]]
@@ -211,7 +211,7 @@ std::vector<std::vector<double>> get_kernel(const int width, const int height, c
 template<Process_type PT>
 [[nodiscard]]
 std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header, const Tga_image & img, const int sigma) noexcept {
-	Timer _;
+	[[maybe_unused]] Timer timer;
 	constexpr auto filter_height = 5;
 	constexpr auto filter_width = 5;
 
@@ -262,8 +262,14 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 
 int main(int argc, char ** argv){
 
-	if(argc < 3 || argc > 7){
-		std::cerr << "Usage: " << argv[0] << " path_to_image deviation -o output_image_path -g -c";
+	if(argc < 3 || argc > 7 || argc == 6){
+		std::cerr << "Usage: " << argv[0] << " path_to_tga_img deviation\n\n"
+			"Options:\n"
+			"-o output_image_path -> store the convolved image at given path instead of overwriting\n"
+			"-g -> use gpu\n"
+			"-c -> use cpu\n\n"
+			"note: if neither -c or -g is provided, both cpu and gpu will be used\n";
+
 		return 1;
 	}
 
@@ -287,10 +293,11 @@ int main(int argc, char ** argv){
 
 	bool use_gpu = false;
 	bool use_cpu = false;
-	std::string output_image_path;
+	std::string_view output_image_path;
 
+	// todo: improve argparse
 	for(int i = 3; i < argc; ++i){
-		const auto cur_arg = std::string(argv[i]);
+		const std::string_view cur_arg(argv[i]);
 
 		if(cur_arg == "-c"){
 			use_cpu = true;
@@ -322,8 +329,8 @@ int main(int argc, char ** argv){
 			std::cout << "convolution successful.\n";
 
 			if(!use_gpu){
-				std::cout << "writing the convoluded image to: " << output_image_path << "...\n";
-				write_tga_image(convolved_header, convolved_img, output_image_path.c_str());
+				std::cout << "writing CPU's convoluded image to: " << output_image_path << "...\n";
+				write_tga_image(convolved_header, convolved_img, output_image_path.data());
 				std::cout << "convolved image written successfully to " << output_image_path << ".\n";
 			}
 		}
@@ -333,8 +340,8 @@ int main(int argc, char ** argv){
 			const auto [convolved_header, convolved_img] = convolve_tga_image<Process_type::GPU>(header, tga_img, *sigma);
 			std::cout << "convolution successful.\n";
 
-			std::cout << "writing the convoluded image to: " << output_image_path << "...\n";
-			write_tga_image(convolved_header, convolved_img, output_image_path.c_str());
+			std::cout << "writing GPU's convoluded image to: " << output_image_path << "...\n";
+			write_tga_image(convolved_header, convolved_img, output_image_path.data());
 			std::cout << "convolved image written successfully to " << output_image_path << ".\n";
 		}
 
