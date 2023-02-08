@@ -2,11 +2,13 @@ cmake_minimum_required(VERSION 3.20)
 
 project(convolution CXX)
 
+if(NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE "Release")
+endif()
+
 find_package(CUDA REQUIRED)
 
 set(CUDA_HOST_COMPILER clang++)
-
-set(CMAKE_BUILD_TYPE "release")
 
 list(APPEND CUDA_NVCC_FLAGS "-std=c++17")
 list(APPEND CUDA_NVCC_FLAGS "--expt-relaxed-constexpr")

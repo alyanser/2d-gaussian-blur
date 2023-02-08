@@ -5,49 +5,11 @@
 #include <tuple>
 #include <optional>
 #include <algorithm>
+#include <unistd.h>
 
 #include "ops.h"
 #include "tga_image.h"
 #include "timer.h"
-
-[[nodiscard]]
-std::pair<tga::Header, Tga_image> extract_tga_image(const std::string_view tga_img_path){
-	File input_img_file(tga_img_path.data(), "rb"); // open the given file in read & binary mode
-	
-	if(!input_img_file){
-		throw std::runtime_error("given file could not be opened for reading");
-	}
-
-	tga::StdioFileInterface tga_stdio_interface(*input_img_file);
-	tga::Decoder decoder(&tga_stdio_interface);
-	tga::Header header;
-
-	if(!decoder.readHeader(header)){
-		throw std::runtime_error("given file isn't either a tga image or it's corrupted. tga header could not be extracted");
-	}
-
-	Tga_image img(header.height, header.width, header.bytesPerPixel());
-
-	if(!decoder.readImage(header, *img, nullptr)){
-		throw std::runtime_error("given tga image seems to be corrupted. pixel blob couldn't be extrracted");
-	}
-
-	return std::make_pair(std::move(header), std::move(img));
-}
-
-void write_tga_image(const tga::Header & header, const Tga_image & img, const std::string_view output_file_path){
-	File output_img_file(output_file_path.data(), "wb");
-
-	if(!output_img_file){
-		throw std::runtime_error("output file could not be opened for writing");
-	}
-
-	tga::StdioFileInterface tga_stdio_interface(*output_img_file);
-	tga::Encoder encoder(&tga_stdio_interface);
-
-	encoder.writeHeader(header);
-	encoder.writeImage(header, *img);
-}
 
 enum class Process_type {
 	CPU,
@@ -161,9 +123,39 @@ int main(int argc, char ** argv){
 		return 1;
 	}
 
+	bool use_gpu = false;
+	bool use_cpu = false;
+	std::string_view output_image_path;
+
+	for(int c; (c = getopt(argc, argv, "cgo:")) != -1;){
+
+		switch(c){
+
+			case 'c' : {
+				use_cpu = true;
+				break;
+			}
+
+			case 'g' : {
+				use_gpu = true;
+				break;
+			}
+
+			case 'o' : {
+				output_image_path = optarg;
+				break;
+			}
+
+			default : {
+				std::cerr << "unrecognized option detected";
+				return 1;
+			}
+		}
+	}
+
 	const auto sigma = [&argv]() -> std::optional<int> {
 		try{
-			return std::stoi(argv[2]);
+			return std::stoi(argv[optind + 1]);
 		}catch(const std::exception & e){
 			return std::nullopt;
 		}
@@ -179,35 +171,8 @@ int main(int argc, char ** argv){
 		return 1;
 	}
 
-	bool use_gpu = false;
-	bool use_cpu = false;
-	std::string_view output_image_path;
-
-	// todo: improve argparse
-	for(int i = 3; i < argc; ++i){
-		const std::string_view cur_arg(argv[i]);
-
-		if(cur_arg == "-c"){
-			use_cpu = true;
-		}else if(cur_arg == "-g"){
-			use_gpu = true;
-		}else if(cur_arg == "-o"){
-
-			if(i + 1 < argc){
-				output_image_path = argv[i + 1];
-				++i;
-			}else{
-				std::cerr << "-o option requires an additional argument.\n";
-				return 1;
-			}
-		}else{
-			std::cerr << "unrecognized argument: " << cur_arg << '\n';
-			return 1;
-		}
-	}
-
 	if(output_image_path.empty()){
-		output_image_path = argv[1];
+		output_image_path = argv[optind];
 	}
 
 	if(!use_cpu && !use_gpu){
@@ -216,7 +181,7 @@ int main(int argc, char ** argv){
 
 	try{
 		std::cout << "extracting tga metadata and pixel blob from the given file...\n";
-		const auto [header, tga_img] = extract_tga_image(argv[1]);
+		const auto [header, tga_img] = extract_tga_image(argv[optind]);
 		std::cout << "extraction successful.\n";
 
 		if(use_cpu){
