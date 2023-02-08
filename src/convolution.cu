@@ -112,14 +112,17 @@ std::pair<tga::Header, Tga_image> convolve_tga_image(const tga::Header & header,
 
 int main(int argc, char ** argv){
 
-	if(argc < 3 || argc > 7){
+	auto print_usage = [argv](){
 		std::cerr << "Usage: " << argv[0] << " path_to_tga_img deviation\n\n"
 			"Options:\n"
 			"-o output_image_path -> store the convolved image at given path instead of overwriting\n"
 			"-g -> use gpu\n"
 			"-c -> use cpu\n\n"
 			"note: if neither -c or -g is provided, both cpu and gpu will be used\n";
+	};
 
+	if(argc < 3 || argc > 7){
+		print_usage();
 		return 1;
 	}
 
@@ -147,7 +150,8 @@ int main(int argc, char ** argv){
 			}
 
 			default : {
-				std::cerr << "unrecognized option detected";
+				std::cerr << "invalid argument detected\n";
+				print_usage();
 				return 1;
 			}
 		}
