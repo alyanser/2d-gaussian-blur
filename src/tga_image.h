@@ -2,6 +2,7 @@
 
 #include "file.h"
 #include <tga.h>
+#include <cstdint>
 
 class Tga_image {
 public:
